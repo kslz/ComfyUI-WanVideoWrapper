@@ -1192,6 +1192,7 @@ class WanVideoAnimateEmbeds:
                 "bg_images": ("IMAGE", {"tooltip": "background images"}),
                 "mask": ("MASK", {"tooltip": "mask"}),
                 "tiled_vae": ("BOOLEAN", {"default": False, "tooltip": "Use tiled VAE encoding for reduced memory use"}),
+                "contiune_motion_frames": ("IMAGE", {"tooltip": "The last frames of a previous video to continue from."}),
             }
         }
 
@@ -1201,7 +1202,7 @@ class WanVideoAnimateEmbeds:
     CATEGORY = "WanVideoWrapper"
 
     def process(self, vae, width, height, num_frames, force_offload, frame_window_size, colormatch, pose_strength, face_strength,
-                ref_images=None, pose_images=None, face_images=None, clip_embeds=None, tiled_vae=False, bg_images=None, mask=None):
+                ref_images=None, pose_images=None, face_images=None, clip_embeds=None, tiled_vae=False, bg_images=None, mask=None, contiune_motion_frames=None):
         
         W = (width // 16) * 16
         H = (height // 16) * 16
@@ -1310,6 +1311,15 @@ class WanVideoAnimateEmbeds:
             resized_face_images = (resized_face_images * 2 - 1).unsqueeze(0)
             resized_face_images = resized_face_images.to(offload_device, dtype=vae.dtype)
 
+        start_ref_images = None
+        if contiune_motion_frames is not None:
+            # Resize and format similar to other images
+            if contiune_motion_frames.shape[1] != H or contiune_motion_frames.shape[2] != W:
+                start_ref_images = common_upscale(contiune_motion_frames.movedim(-1, 1), W, H, "lanczos", "disabled").movedim(0, 1)
+            else:
+                start_ref_images = contiune_motion_frames.permute(3, 0, 1, 2) # C, T, H, W
+            # Normalize to [-1, 1] range as expected by the sampler logic
+            start_ref_images = (start_ref_images[:3] * 2 - 1).to(offload_device, dtype=vae.dtype)
 
         seq_len = math.ceil((target_shape[2] * target_shape[3]) / 4 * target_shape[1])
         

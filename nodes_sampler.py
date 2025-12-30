@@ -2179,7 +2179,7 @@ class WanVideoSampler:
                         bg_images = image_embeds.get("bg_images", None)
                         pose_images = image_embeds.get("pose_images", None)
 
-                        current_ref_images = face_images = face_images_in = None
+                        face_images = face_images_in = None
 
                         if wananim_face_pixels is not None:
                             face_images = tensor_pingpong_pad(wananim_face_pixels, target_len)
@@ -2201,6 +2201,20 @@ class WanVideoSampler:
                         output_path = image_embeds.get("output_path", "")
                         offload = image_embeds.get("force_offload", False)
 
+                        # Check for manually provided start reference images
+                        start_ref_images = image_embeds.get("start_ref_images", None)
+                        current_ref_images = None
+                        if start_ref_images is not None:
+                            # Use the last 'refert_num' frames from the input
+                            if start_ref_images.shape[1] >= refert_num:
+                                current_ref_images = start_ref_images[:, -refert_num:].clone().detach()
+                                log.info(f"WanAnimate: Starting with provided previous frames as reference.")
+                            else:
+                                log.warning(f"WanAnimate: Provided previous frames are fewer than required ({refert_num}), using what is available.")
+                                current_ref_images = start_ref_images.clone().detach()
+                        else:
+                            current_ref_images = None
+
                         lat_h, lat_w = noise.shape[2], noise.shape[3]
                         start = start_latent = img_counter = step_iteration_count = iteration_count = 0
                         end = frame_window_size
@@ -2218,7 +2232,9 @@ class WanVideoSampler:
 
                             mm.soft_empty_cache()
 
-                            mask_reft_len = 0 if start == 0 else refert_num
+                            # Logic changed: if we are at start=0 but we have start_ref_images, we treat it as having reference context
+                            has_start_ref = (start == 0 and start_ref_images is not None)
+                            mask_reft_len = 0 if (start == 0 and not has_start_ref) else refert_num
 
                             self.cache_state = [None, None]
 
